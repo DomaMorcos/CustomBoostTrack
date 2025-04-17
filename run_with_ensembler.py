@@ -92,6 +92,20 @@ def get_main_args():
         args.result_folder = args.result_folder.replace("-val", "-test")
     return args
 
+def my_data_loader(main_path):
+    img_pathes = [os.path.join(main_path, img) for img in os.listdir(main_path)]
+    img_pathes = sorted(img_pathes)
+    preproc = dataset.ValTransform(
+        rgb_means=(0.485, 0.456, 0.406),
+        std=(0.229, 0.224, 0.225),
+    )
+    for idx, img_path in enumerate(img_pathes[:], 1):
+        np_img = cv2.imread(img_path)
+        # get size of image
+        height, width, _ = np_img.shape
+        img, target = preproc(np_img, None, (height, width))
+        yield ((img.reshape(1, *img.shape), np_img), target, (height, width, torch.tensor(idx), None, ["test"]), None)
+
 def main():
     args = get_main_args()
     GeneralSettings.values['dataset'] = args.dataset
