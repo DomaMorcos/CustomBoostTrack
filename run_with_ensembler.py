@@ -41,67 +41,90 @@ def get_main_args():
     parser.add_argument("--model2_path", type=str)
     parser.add_argument("--model2_weight", type=float, default=0.5)
     parser.add_argument("--reid_path", type=str)
-    parser.add_argument("--reid_path2", type=str, default=None, help="path to second reid weights (optional)")
-    parser.add_argument("--reid_weight1", type=float, default=0.5, help="weight of first reid model")
-    parser.add_argument("--reid_weight2", type=float, default=0.5, help="weight of second reid model")
+    parser.add_argument("--reid_path2", type=str, default=None)
+    parser.add_argument("--reid_weight1", type=float, default=0.5)
+    parser.add_argument("--reid_weight2", type=float, default=0.5)
     parser.add_argument("--frame_rate", type=int, default=25)
-
+    
+    # Detector parameters
+    parser.add_argument("--iou_thresh", type=float, default=0.6, help="IoU threshold for WBF")
+    parser.add_argument("--conf_thresh", type=float, default=0.3, help="Confidence threshold for fused boxes")
+    
+    # Tracker parameters
+    parser.add_argument("--max_age", type=int, default=None, help="Max age for tracks (overrides frame_rate if set)")
+    parser.add_argument("--min_hits", type=int, default=3, help="Min hits to confirm a track")
+    parser.add_argument("--det_thresh", type=float, default=None, help="Detection confidence threshold")
+    parser.add_argument("--iou_threshold", type=float, default=0.35, help="IoU threshold for tracking")
+    parser.add_argument("--min_box_area", type=float, default=10, help="Min box area for valid detections")
+    parser.add_argument("--aspect_ratio_thresh", type=float, default=1.6, help="Aspect ratio threshold for detections")
+    parser.add_argument("--lambda_iou", type=float, default=0.5, help="IoU cost weight")
+    parser.add_argument("--lambda_mhd", type=float, default=0.25, help="Mahalanobis distance cost weight")
+    parser.add_argument("--lambda_shape", type=float, default=0.25, help="Shape similarity cost weight")
+    parser.add_argument("--use_dlo_boost", type=int, default=1, help="Enable DLO boost (1=True, 0=False)")
+    parser.add_argument("--use_duo_boost", type=int, default=1, help="Enable DUO boost (1=True, 0=False)")
+    parser.add_argument("--dlo_boost_coef", type=float, default=None, help="DLO boost coefficient")
+    
+    # Post-processing parameters
+    parser.add_argument("--n_min", type=int, default=25, help="Min frames for interpolation")
+    parser.add_argument("--n_dti", type=int, default=20, help="Max frame gap for linear interpolation")
+    parser.add_argument("--interval", type=int, default=1000, help="Max frame gap for interpolation")
+    
     args = parser.parse_args()
     if args.dataset == "mot17":
         args.result_folder = os.path.join(args.result_folder, "MOT17-val")
     elif args.dataset == "mot20":
         args.result_folder = os.path.join(args.result_folder, "MOT20-val")
-
+    elif args.dataset == "tarsh":  # Add custom dataset
+        args.result_folder = os.path.join(args.result_folder, "tarsh-val")
+    
     if args.test_dataset:
         args.result_folder = args.result_folder.replace("-val", "-test")
     return args
 
-
-def my_data_loader(main_path):
-    img_pathes = [os.path.join(main_path, img) for img in os.listdir(main_path)]
-    img_pathes = sorted(img_pathes)
-    preproc=dataset.ValTransform(
-            rgb_means=(0.485, 0.456, 0.406),
-            std=(0.229, 0.224, 0.225),
-        )
-    for idx, img_path in enumerate(img_pathes[:], 1):
-        np_img = cv2.imread(img_path)
-        # get size of image
-        height, width, _ = np_img.shape
-        img, target  = preproc(np_img, None, (height, width))
-        yield ((img.reshape(1, *img.shape), np_img), target, (height, width, torch.tensor(idx), None, ["test"]), None)
-
-
 def main():
-    # Set dataset and detector
     args = get_main_args()
     GeneralSettings.values['dataset'] = args.dataset
     GeneralSettings.values['use_embedding'] = not args.no_reid
     GeneralSettings.values['use_ecc'] = not args.no_cmc
     GeneralSettings.values['test_dataset'] = args.test_dataset
     GeneralSettings.values['reid_path'] = args.reid_path
-    GeneralSettings.values['max_age'] = args.frame_rate
-
+    GeneralSettings.values['min_hits'] = args.min_hits
+    GeneralSettings.values['iou_threshold'] = args.iou_threshold
+    GeneralSettings.values['min_box_area'] = args.min_box_area
+    GeneralSettings.values['aspect_ratio_thresh'] = args.aspect_ratio_thresh
+    if args.max_age is not None:
+        GeneralSettings.values['max_age'] = args.max_age
+    else:
+        GeneralSettings.values['max_age'] = args.frame_rate
+    
+    if args.det_thresh is not None:
+        GeneralSettings.dataset_specific_settings[args.dataset] = {'det_thresh': args.det_thresh}
+    if args.dlo_boost_coef is not None:
+        BoostTrackSettings.dataset_specific_settings[args.dataset] = {'dlo_boost_coef': args.dlo_boost_coef}
+    
     BoostTrackSettings.values['s_sim_corr'] = args.s_sim_corr
-
+    BoostTrackSettings.values['lambda_iou'] = args.lambda_iou
+    BoostTrackSettings.values['lambda_mhd'] = args.lambda_mhd
+    BoostTrackSettings.values['lambda_shape'] = args.lambda_shape
+    BoostTrackSettings.values['use_dlo_boost'] = bool(args.use_dlo_boost)
+    BoostTrackSettings.values['use_duo_boost'] = bool(args.use_duo_boost)
+    
     BoostTrackPlusPlusSettings.values['use_rich_s'] = not args.btpp_arg_iou_boost
     BoostTrackPlusPlusSettings.values['use_sb'] = not args.btpp_arg_no_sb
     BoostTrackPlusPlusSettings.values['use_vt'] = not args.btpp_arg_no_vt
-
 
     tracker = None
     results = {}
     frame_count = 0
     total_time = 0
 
-    model1 = YoloDetector(args.model1_path)  # YOLOv12l
-    model2 = YoloDetector(args.model2_path)  # YOLOv9e
-    det = EnsembleDetector(model1, model2, args.model1_weight, args.model2_weight)
-    for (img, np_img), _ , info, _ in my_data_loader(args.dataset_path):
+    model1 = YoloDetector(args.model1_path)
+    model2 = YoloDetector(args.model2_path)
+    det = EnsembleDetector(model1, model2, args.model1_weight, args.model2_weight, args.iou_thresh, args.conf_thresh)
+    
+    for (img, np_img), _, info, _ in my_data_loader(args.dataset_path):
         frame_id = info[2].item()
         video_name = info[4][0].split("/")[0]
-
-    
         tag = f"{video_name}:{frame_id}"
         if video_name not in results:
             results[video_name] = []
@@ -112,35 +135,28 @@ def main():
             print(f"Time spent: {total_time:.3f}, FPS {frame_count / (total_time + 1e-9):.2f}")
             if tracker is not None:
                 tracker.dump_cache()
-
             tracker = BoostTrack(video_name=video_name)
 
         pred = det(np_img)
         start_time = time.time()
-
         if pred is None:
             continue
-        # Nx5 of (x1, y1, x2, y2, ID)
         targets = tracker.update(pred, img, np_img, tag)
         tlwhs, ids, confs = utils.filter_targets(targets, GeneralSettings['aspect_ratio_thresh'], GeneralSettings['min_box_area'])
-        print(f"{len(ids)} ids deteted")
+        print(f"{len(ids)} ids detected")
         total_time += time.time() - start_time
         frame_count += 1
-
         results[video_name].append((frame_id, tlwhs, ids, confs))
 
     print(f"Time spent: {total_time:.3f}, FPS {frame_count / (total_time + 1e-9):.2f}")
-    print(total_time)
-    # Save detector results
-    # det.dump_cache()
     tracker.dump_cache()
-    # Save for all sequences
     folder = os.path.join(args.result_folder, args.exp_name, "data")
     os.makedirs(folder, exist_ok=True)
     for name, res in results.items():
         result_filename = os.path.join(folder, f"{name}.txt")
         utils.write_results_no_score(result_filename, res)
     print(f"Finished, results saved to {folder}")
+
     if not args.no_post:
         post_folder = os.path.join(args.result_folder, args.exp_name + "_post")
         pre_folder = os.path.join(args.result_folder, args.exp_name)
@@ -149,27 +165,18 @@ def main():
             shutil.rmtree(post_folder)
         shutil.copytree(pre_folder, post_folder)
         post_folder_data = os.path.join(post_folder, "data")
-        interval = 1000  # i.e. no max interval
-        utils.dti(post_folder_data, post_folder_data, n_dti=interval, n_min=25)
+        utils.dti(post_folder_data, post_folder_data, n_dti=args.n_dti, n_min=args.n_min)
 
         print(f"Linear interpolation post-processing applied, saved to {post_folder_data}.")
 
-        res_folder = os.path.join(args.result_folder, args.exp_name, "data")
         post_folder_gbi = os.path.join(args.result_folder, args.exp_name + "_post_gbi", "data")
-
         if not os.path.exists(post_folder_gbi):
             os.makedirs(post_folder_gbi)
-        for file_name in os.listdir(res_folder):
+        for file_name in os.listdir(post_folder_data):
             in_path = os.path.join(post_folder_data, file_name)
             out_path2 = os.path.join(post_folder_gbi, file_name)
-
-            GBInterpolation(
-                path_in=in_path,
-                path_out=out_path2,
-                interval=interval
-            )
+            GBInterpolation(path_in=in_path, path_out=out_path2, interval=args.interval)
         print(f"Gradient boosting interpolation post-processing applied, saved to {post_folder_gbi}.")
-
 
 if __name__ == "__main__":
     main()
