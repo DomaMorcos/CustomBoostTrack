@@ -29,9 +29,9 @@ def get_main_args():
     
     # Override defaults for existing arguments
     if 'iou_thresh' in existing_args:
-        parser.set_defaults(iou_thresh=0.6)  # Override default for WBF (was 0.3 in args.py)
+        parser.set_defaults(iou_thresh=0.6)  # Override for WBF (was 0.3 in args.py)
     if 'min_hits' in existing_args:
-        parser.set_defaults(min_hits=3)  # Same as default in args.py, but explicit
+        parser.set_defaults(min_hits=3)  # Same as default in args.py
     if 'conf' in existing_args:
         parser.set_defaults(conf=0.3)  # Map to conf_thresh
     
@@ -131,7 +131,7 @@ def main():
 
     model1 = YoloDetector(args.model1_path)
     model2 = YoloDetector(args.model2_path)
-    det = EnsembleDetector(model1, model2, args.model1_weight, args.model2_weight, args.iou_thresh, args.conf)
+    det = EnsembleDetector(model1, model2, args.model1_weight, args.model2_weight, args.iou_thresh, args.conf_thresh)
     
     for (img, np_img), _, info, _ in my_data_loader(args.dataset_path):
         frame_id = info[2].item()
