@@ -1,13 +1,13 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_geometric.nn import GCNConv
+from torch_geometric.nn import GATConv
 
 class MOTGNN(nn.Module):
-    def __init__(self, input_dim=260, hidden_dim=128, edge_dim=3):
+    def __init__(self, input_dim=260, hidden_dim=128, edge_dim=4, num_heads=4):
         super(MOTGNN, self).__init__()
-        self.conv1 = GCNConv(input_dim, hidden_dim)
-        self.conv2 = GCNConv(hidden_dim, hidden_dim)
+        self.conv1 = GATConv(input_dim, hidden_dim, heads=num_heads, concat=True)
+        self.conv2 = GATConv(hidden_dim * num_heads, hidden_dim, heads=1, concat=False)
         self.edge_mlp = nn.Sequential(
             nn.Linear(hidden_dim * 2 + edge_dim, hidden_dim),
             nn.ReLU(),
