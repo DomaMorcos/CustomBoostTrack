@@ -140,7 +140,16 @@ def preproc(image, input_size, mean, std, swap=(2, 0, 1)):
 class MOTGraphDataset(MOTDataset):
     def __init__(self, *args, model1=None, model2=None, reid_path=None, **kwargs):
         print(f"Initializing MOTGraphDataset: reid={reid_path}")
-        super().__init__(*args, **kwargs)
+        # Extract only the arguments expected by MOTDataset
+        mot_kwargs = {
+            'data_dir': kwargs.get('data_dir'),
+            'json_file': kwargs.get('json_file', 'val_half.json'),
+            'name': kwargs.get('name', 'train'),
+            'img_size': kwargs.get('img_size', (960, 1728)),
+            'preproc': kwargs.get('preproc'),
+            'img_data_dir': kwargs.get('img_data_dir')
+        }
+        super().__init__(**mot_kwargs)
         self.detector = EnsembleDetector(
             model1,
             model2,
@@ -209,7 +218,7 @@ class MOTGraphDataset(MOTDataset):
                 first_tracker = False
         trk_states = np.array(trk_states) if trk_states else np.zeros((0, 4))
         trk_embs = np.array(trk_embs) if trk_embs else np.zeros((0, 256))
-        print(f"Tracker states shape: {trk_states.shape}, embeddings shape: {trk_embs.shape}")
+        print(f"Tracker states shape: {trk_states.shape}, embeddings shape={trk_embs.shape}")
         self.trackers[video_id] = [t for t in trackers if t.time_since_update <= 100]
         print(f"Filtered trackers for video {video_id}: {len(self.trackers[video_id])}")
         graph = self._create_graph(dets, dets_embs, trk_states, trk_embs, trackers, target[:, :4], target[:, 5], width, height)
