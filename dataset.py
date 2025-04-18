@@ -1,3 +1,4 @@
+```python
 import os
 import cv2
 import torch
@@ -169,8 +170,10 @@ class MOTGraphDataset(MOTDataset):
         dets = self.detector(img_numpy)
         if dets is None:
             dets = np.zeros((0, 5))
+        dets = torch.tensor(dets, dtype=torch.float32) if len(dets) > 0 else torch.zeros((0, 5))
         dets = dets[dets[:, 4] >= 0.4]
-        dets_embs = self.embedder.compute_embedding(img_numpy, dets[:, :4], f"{video_id}:{frame_id}") if len(dets) > 0 else np.zeros((0, 256))
+        dets_embs = self.embedder.compute_embedding(img_numpy, dets[:, :4].cpu().numpy(), f"{video_id}:{frame_id}") if len(dets) > 0 else np.zeros((0, 256))
+        dets_embs = torch.tensor(dets_embs, dtype=torch.float32)
         if video_id not in self.trackers:
             self.trackers[video_id] = []
         trackers = self.trackers[video_id]
@@ -277,3 +280,4 @@ class MOTGraphDataset(MOTDataset):
             gt_id = gt_ids[np.argmax(ious)]
             return gt_id
         return -1
+```
