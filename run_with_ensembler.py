@@ -73,6 +73,7 @@ def get_main_args():
         ("--reid_weight1", {"type": float, "default": 0.5}),
         ("--reid_weight2", {"type": float, "default": 0.5}),
         ("--frame_rate", {"type": int, "default": 25}),
+        ("--gnn_model_path", {"type": str, "default": None, "help": "Path to pretrained GNN model"}),
     ]
     
     for arg_name, kwargs in new_args:
@@ -160,7 +161,7 @@ def main():
             print(f"Time spent: {total_time:.3f}, FPS {frame_count / (total_time + 1e-9):.2f}")
             if tracker is not None:
                 tracker.dump_cache()
-            tracker = BoostTrack(video_name=video_name)
+            tracker = BoostTrack(video_name=video_name, gnn_model_path=args.gnn_model_path)
 
         pred = det(np_img)
         start_time = time.time()
