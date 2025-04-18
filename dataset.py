@@ -103,19 +103,37 @@ class ValTransform:
         if self.is_train and len(res) > 0:
             img_h, img_w = input_size[0], input_size[1]
             bboxes = res[:, :4].copy()
-            bboxes[:, [0, 2]] = np.clip(bboxes[:, [0, 2]] / img_w, 0.0, 1.0)  # x1, x2
-            bboxes[:, [1, 3]] = np.clip(bboxes[:, [1, 3]] / img_h, 0.0, 1.0)  # y1, y2
-            bboxes = bboxes.tolist()
-            labels = res[:, 4].tolist()
-            aug_result = self.aug_transform(image=img, bboxes=bboxes, labels=labels)
-            img = aug_result['image']
-            if len(aug_result['bboxes']) > 0:
-                aug_bboxes = np.array(aug_result['bboxes'])
-                aug_bboxes[:, [0, 2]] = np.clip(aug_bboxes[:, [0, 2]], 0.0, 1.0)
-                aug_bboxes[:, [1, 3]] = np.clip(aug_bboxes[:, [1, 3]], 0.0, 1.0)
-                aug_bboxes[:, [0, 2]] *= img_w
-                aug_bboxes[:, [1, 3]] *= img_h
-                res[:, :4] = aug_bboxes
+            # Filter valid bboxes (x_max > x_min, y_max > y_min)
+            valid_mask = (bboxes[:, 2] > bboxes[:, 0]) & (bboxes[:, 3] > bboxes[:, 1])
+            bboxes = bboxes[valid_mask]
+            labels = res[valid_mask, 4].tolist()
+            if len(bboxes) > 0:
+                bboxes[:, [0, 2]] = np.clip(bboxes[:, [0, 2]] / img_w, 0.0, 1.0)  # x1, x2
+                bboxes[:, [1, 3]] = np.clip(bboxes[:, [1, 3]] / img_h, 0.0, 1.0)  # y1, y2
+                bboxes = bboxes.tolist()
+                aug_result = self.aug_transform(image=img, bboxes=bboxes, labels=labels)
+                img = aug_result['image']
+                if len(aug_result['bboxes']) > 0:
+                    aug_bboxes = np.array(aug_result['bboxes'])
+                    # Filter valid augmented bboxes
+                    valid_aug_mask = (aug_bboxes[:, 2] > aug_bboxes[:, 0]) & (aug_bboxes[:, 3] > aug_bboxes[:, 1])
+                    aug_bboxes = aug_bboxes[valid_aug_mask]
+                    if len(aug_bboxes) > 0:
+                        aug_bboxes[:, [0, 2]] = np.clip(aug_bboxes[:, [0, 2]], 0.0, 1.0)
+                        aug_bboxes[:, [1, 3]] = np.clip(aug_bboxes[:, [1, 3]], 0.0, 1.0)
+                        aug_bboxes[:, [0, 2]] *= img_w
+                        aug_bboxes[:, [1, 3]] *= img_h
+                        # Update res with valid augmented bboxes
+                        new_res = np.zeros_like(res)
+                        new_res[:len(aug_bboxes), :4] = aug_bboxes
+                        new_res[:len(aug_bboxes), 4] = res[valid_mask][:len(aug_bboxes), 4]
+                        new_res[:len(aug_bboxes), 5] = res[valid_mask][:len(aug_bboxes), 5]
+                        res = new_res[:len(aug_bboxes)]
+            else:
+                # No valid bboxes; apply image-only augmentation
+                aug_result = self.aug_transform(image=img, bboxes=[], labels=[])
+                img = aug_result['image']
+                res = np.zeros((0, 6))  # Empty annotations
         img, _ = preproc(img, input_size, self.means, self.std, self.swap)
         return img, np.zeros((1, 5)) if not self.is_train else (img, res)
 
