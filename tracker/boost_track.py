@@ -18,8 +18,8 @@ from default_settings import GeneralSettings, BoostTrackSettings, BoostTrackPlus
 from tracker.embedding import EmbeddingComputer
 from tracker.assoc import associate, iou_batch, MhDist_similarity, shape_similarity, soft_biou_batch
 from tracker.ecc import ECC
-from tracker.kalmanfilter import KalmanFilter, convert_bbox_to_z
-from tracker.gnn import MOTGNN
+from tracker.kalmanfilter import KalmanFilter
+from tracker.GNN import MOTGNN
 
 def convert_bbox_to_z(bbox):
     """
