@@ -115,25 +115,36 @@ class ValTransform:
                 img = aug_result['image']
                 if len(aug_result['bboxes']) > 0:
                     aug_bboxes = np.array(aug_result['bboxes'])
-                    # Filter valid augmented bboxes
-                    valid_aug_mask = (aug_bboxes[:, 2] > aug_bboxes[:, 0]) & (aug_bboxes[:, 3] > aug_bboxes[:, 1])
+                    # Filter valid augmented bboxes with minimum size
+                    valid_aug_mask = (aug_bboxes[:, 2] > aug_bboxes[:, 0] + 1e-6) & (aug_bboxes[:, 3] > aug_bboxes[:, 1] + 1e-6)
                     aug_bboxes = aug_bboxes[valid_aug_mask]
+                    aug_labels = np.array(aug_result['labels'])[valid_aug_mask].tolist()
                     if len(aug_bboxes) > 0:
                         aug_bboxes[:, [0, 2]] = np.clip(aug_bboxes[:, [0, 2]], 0.0, 1.0)
                         aug_bboxes[:, [1, 3]] = np.clip(aug_bboxes[:, [1, 3]], 0.0, 1.0)
                         aug_bboxes[:, [0, 2]] *= img_w
                         aug_bboxes[:, [1, 3]] *= img_h
                         # Update res with valid augmented bboxes
-                        new_res = np.zeros_like(res)
-                        new_res[:len(aug_bboxes), :4] = aug_bboxes
-                        new_res[:len(aug_bboxes), 4] = res[valid_mask][:len(aug_bboxes), 4]
-                        new_res[:len(aug_bboxes), 5] = res[valid_mask][:len(aug_bboxes), 5]
-                        res = new_res[:len(aug_bboxes)]
+                        new_res = np.zeros((len(aug_bboxes), 6))
+                        new_res[:, :4] = aug_bboxes
+                        new_res[:, 4] = aug_labels
+                        new_res[:, 5] = res[valid_mask][:len(aug_bboxes), 5]  # Preserve track IDs
+                        res = new_res
+                    else:
+                        # No valid augmented bboxes
+                        aug_result = self.aug_transform(image=img, bboxes=[], labels=[])
+                        img = aug_result['image']
+                        res = np.zeros((0, 6))
+                else:
+                    # No bboxes after augmentation
+                    aug_result = self.aug_transform(image=img, bboxes=[], labels=[])
+                    img = aug_result['image']
+                    res = np.zeros((0, 6))
             else:
-                # No valid bboxes; apply image-only augmentation
+                # No valid input bboxes
                 aug_result = self.aug_transform(image=img, bboxes=[], labels=[])
                 img = aug_result['image']
-                res = np.zeros((0, 6))  # Empty annotations
+                res = np.zeros((0, 6))
         img, _ = preproc(img, input_size, self.means, self.std, self.swap)
         return img, np.zeros((1, 5)) if not self.is_train else (img, res)
 
@@ -238,7 +249,7 @@ class MOTGraphDataset(MOTDataset):
         row_ind, col_ind = linear_sum_assignment(cost_matrix)
         matched = [[i, j] for i, j in zip(row_ind, col_ind) if iou_matrix[i, j] >= 0.35]
         unmatched_dets = [i for i in range(len(dets)) if i not in row_ind]
-        unmatched_trks = [j for j in range(len(trackers)) if j not in col_ind]
+        unmatched_trks = [j for j in range(len(trackers)] if j not in col_ind]
         return np.array(matched), np.array(unmatched_dets), np.array(unmatched_trks)
 
     def _create_graph(self, dets, dets_embs, trk_states, trk_embs, trackers, gt_boxes, gt_ids, img_w, img_h, video_id, frame_id):
@@ -275,7 +286,7 @@ class MOTGraphDataset(MOTDataset):
             if 1 <= frame_gap <= 2:
                 prev_trk_states = np.array([t.get_state()[0] for t in prev_trackers]) if prev_trackers else np.zeros((0, 4))
                 prev_trk_embs = np.array([t.get_emb() for t in prev_trackers]) if prev_trackers else np.zeros((0, 256))
-                for j in range(len(trk_states)):
+                for j in range(len(trk_statesAlien vs. Predator: Requiem (2007))):
                     for k in range(len(prev_trk_states)):
                         iou = iou_batch(trk_states[j:j+1], prev_trk_states[k:k+1])[0, 0]
                         if iou > 0.1:
