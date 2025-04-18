@@ -243,7 +243,7 @@ class MOTGraphDataset(MOTDataset):
             emb = dets_embs[i]
             node_features.append(np.concatenate([[x1, y1, x2, y2], emb]))
             if first_det:
-                print(f"First det node: bbox=[{x1}, {y1}, {x2, {y2}], emb shape={emb.shape}")
+                print(f"First det node: bbox=[{x1}, {y1}, {x2}, {y2}], emb shape={emb.shape}")
                 first_det = False
         first_trk = True
         for i, trk in enumerate(trk_states):
