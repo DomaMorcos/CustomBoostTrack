@@ -201,8 +201,8 @@ class EmbeddingComputer:
         elif self.dataset == "dance":
             path = "external/weights/dance_sbs_S50.pth"
         else:
-            return self._get_general_model()
-            
+            # return self._get_general_model()
+            path =  self.reid_path
 
         model = FastReID(path)
         model.eval()
