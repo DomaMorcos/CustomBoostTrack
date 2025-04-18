@@ -279,4 +279,3 @@ class MOTGraphDataset(MOTDataset):
             gt_id = gt_ids[np.argmax(ious)]
             return gt_id
         return -1
-```
