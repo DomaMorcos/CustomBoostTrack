@@ -249,7 +249,7 @@ class MOTGraphDataset(MOTDataset):
         row_ind, col_ind = linear_sum_assignment(cost_matrix)
         matched = [[i, j] for i, j in zip(row_ind, col_ind) if iou_matrix[i, j] >= 0.35]
         unmatched_dets = [i for i in range(len(dets)) if i not in row_ind]
-        unmatched_trks = [j for j in range(len(trackers)] if j not in col_ind]
+        unmatched_trks = [j for j in range(len(trackers)) if j not in col_ind]
         return np.array(matched), np.array(unmatched_dets), np.array(unmatched_trks)
 
     def _create_graph(self, dets, dets_embs, trk_states, trk_embs, trackers, gt_boxes, gt_ids, img_w, img_h, video_id, frame_id):
