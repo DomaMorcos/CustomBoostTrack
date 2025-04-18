@@ -101,12 +101,21 @@ class ValTransform:
 
     def __call__(self, img, res, input_size):
         if self.is_train and len(res) > 0:
-            bboxes = res[:, :4].tolist()
+            img_h, img_w = input_size[0], input_size[1]
+            bboxes = res[:, :4].copy()
+            bboxes[:, [0, 2]] = np.clip(bboxes[:, [0, 2]] / img_w, 0.0, 1.0)  # x1, x2
+            bboxes[:, [1, 3]] = np.clip(bboxes[:, [1, 3]] / img_h, 0.0, 1.0)  # y1, y2
+            bboxes = bboxes.tolist()
             labels = res[:, 4].tolist()
             aug_result = self.aug_transform(image=img, bboxes=bboxes, labels=labels)
             img = aug_result['image']
             if len(aug_result['bboxes']) > 0:
-                res[:, :4] = np.array(aug_result['bboxes'])
+                aug_bboxes = np.array(aug_result['bboxes'])
+                aug_bboxes[:, [0, 2]] = np.clip(aug_bboxes[:, [0, 2]], 0.0, 1.0)
+                aug_bboxes[:, [1, 3]] = np.clip(aug_bboxes[:, [1, 3]], 0.0, 1.0)
+                aug_bboxes[:, [0, 2]] *= img_w
+                aug_bboxes[:, [1, 3]] *= img_h
+                res[:, :4] = aug_bboxes
         img, _ = preproc(img, input_size, self.means, self.std, self.swap)
         return img, np.zeros((1, 5)) if not self.is_train else (img, res)
 
