@@ -6,7 +6,6 @@ import cv2
 import numpy as np
 from pycocotools.coco import COCO
 from torchvision import transforms
-from yolox.data import ValTransform
 
 def get_mot_loader(dataset, test, data_dir="data", workers=4, size=(800, 1440)):
     # Different dataset paths
@@ -39,7 +38,6 @@ def get_mot_loader(dataset, test, data_dir="data", workers=4, size=(800, 1440)):
             rgb_means=(0.485, 0.456, 0.406),
             std=(0.229, 0.224, 0.225),
         )
-        ## preproc=ValTransform(rgb_means=(0.0, 0.0, 0.0), std=(1.0, 1, 1.0),)
     )
 
     sampler = torch.utils.data.SequentialSampler(valdataset)
@@ -178,7 +176,6 @@ class ValTransform:
     dimension -> tensorize -> color adj
 
     Arguments:
-        resize (int): input dimension to SSD
         rgb_means ((int,int,int)): average RGB of the dataset
             (104,117,123)
         swap ((int,int,int)): final order of channels
