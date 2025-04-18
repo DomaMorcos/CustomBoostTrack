@@ -286,7 +286,7 @@ class MOTGraphDataset(MOTDataset):
             if 1 <= frame_gap <= 2:
                 prev_trk_states = np.array([t.get_state()[0] for t in prev_trackers]) if prev_trackers else np.zeros((0, 4))
                 prev_trk_embs = np.array([t.get_emb() for t in prev_trackers]) if prev_trackers else np.zeros((0, 256))
-                for j in range(len(trk_statesAlien vs. Predator: Requiem (2007))):
+                for j in range(len(trk_states)):
                     for k in range(len(prev_trk_states)):
                         iou = iou_batch(trk_states[j:j+1], prev_trk_states[k:k+1])[0, 0]
                         if iou > 0.1:
