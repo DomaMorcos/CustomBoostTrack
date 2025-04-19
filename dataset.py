@@ -110,7 +110,7 @@ class ValTransform:
         print(f"Applying ValTransform: input_size={input_size}, img shape={img.shape}")
         img, _ = preproc(img, input_size, self.means, self.std, self.swap)
         print(f"Transformed img shape: {img.shape}")
-        return img, res  # Preserve original res instead of np.zeros((1, 5))
+        return img, res
 
 def preproc(image, input_size, mean, std, swap=(2, 0, 1)):
     print(f"Preprocessing image: input_size={input_size}, mean={mean}, std={std}")
@@ -183,7 +183,7 @@ class MOTGraphDataset(MOTDataset):
         print(f"Filtered detections (>=0.4 conf): {dets.shape}")
         dets = torch.tensor(dets, dtype=torch.float32).clone().detach() if len(dets) > 0 else torch.zeros((0, 5))
         print(f"Detections tensor shape: {dets.shape}")
-        dets_embs = self.embedder.compute_embedding(img_numpy, dets[:, :4], f"{video_id}:{frame_id}") if len(dets) > 0 else np.zeros((0, 256))
+        dets_embs = self.embedder.compute_embedding(img_numpy, dets[:, :4].cpu().numpy(), f"{video_id}:{frame_id}") if len(dets) > 0 else np.zeros((0, 256))
         print(f"Embeddings shape: {dets_embs.shape}")
         if video_id not in self.trackers:
             self.trackers[video_id] = []
@@ -220,7 +220,7 @@ class MOTGraphDataset(MOTDataset):
                 first_tracker = False
         trk_states = np.array(trk_states) if trk_states else np.zeros((0, 4))
         trk_embs = np.array(trk_embs) if trk_embs else np.zeros((0, 256))
-        print(f"Tracker states shape: {trk_states.shape}, embeddings shape={trk_embs.shape}")
+        print(f"Tracker states shape: {trk_states.shape}, embeddings shape: {trk_embs.shape}")
         self.trackers[video_id] = [t for t in trackers if t.time_since_update <= 100]
         print(f"Filtered trackers for video {video_id}: {len(self.trackers[video_id])}")
         graph = self._create_graph(dets, dets_embs, trk_states, trk_embs, trackers, target[:, :4], target[:, 5], width, height)
