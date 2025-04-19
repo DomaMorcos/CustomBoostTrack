@@ -13,21 +13,25 @@ import torch.nn as nn
 from external.adaptors.fastreid_adaptor import FastReID
 
 class OSNetReID(nn.Module):
-    def __init__(self, model_name='osnet_ain_x1_0', embedding_dim=256, pretrained=True):
+    def __init__(self, num_classes, embedding_dim=2048, pth_path=None):
         super(OSNetReID, self).__init__()
         self.model = torchreid.models.build_model(
-            name=model_name,
+            name='osnet_ain_x1_0',
             num_classes=1000,
-            pretrained=pretrained
+            pretrained=False
         )
         self.model.classifier = nn.Identity()
-
+                
         for name, param in self.model.named_parameters():
-            if 'conv4' not in name:
+            if 'conv1' in name or 'conv2' in name:
                 param.requires_grad = False
-
+            else:
+                param.requires_grad = True
+        
         self.fc = nn.Linear(512, embedding_dim)
-
+        self.center = nn.Parameter(torch.randn(num_classes, embedding_dim))
+        nn.init.xavier_uniform_(self.center)
+    
     def forward(self, x):
         x = self.model(x)
         x = self.fc(x)
@@ -220,7 +224,7 @@ class EmbeddingComputer:
                 embedding_dim=256
             )
         else:  # Use single model
-            model = OSNetReID(embedding_dim=256)
+            model = OSNetReID(embedding_dim=2048)
             if self.reid_path:
                 model.load_state_dict(torch.load(self.reid_path))
 
