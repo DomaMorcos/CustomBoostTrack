@@ -13,7 +13,7 @@ import torch.nn as nn
 from external.adaptors.fastreid_adaptor import FastReID
 
 class OSNetReID(nn.Module):
-    def __init__(self, embedding_dim=2048,pretrained=True):
+    def __init__(self,num_classes=1000, embedding_dim=2048,pretrained=True):
         super(OSNetReID, self).__init__()
         self.model = torchreid.models.build_model(
             name='osnet_ain_x1_0',
