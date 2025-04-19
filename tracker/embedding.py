@@ -226,7 +226,13 @@ class EmbeddingComputer:
         else:  # Use single model
             model = OSNetReID(embedding_dim=2048)
             if self.reid_path:
-                model.load_state_dict(torch.load(self.reid_path))
+                # model.load_state_dict(torch.load(self.reid_path))
+
+                print(f"Loading pretrained weights from {self.reid_path}")
+                checkpoint = torch.load(self.reid_path, map_location='cpu', weights_only=False)
+                state_dict = checkpoint.get('state_dict', checkpoint)
+                model.load_state_dict(state_dict, strict=False)
+                print(f"Successfully loaded pretrained weights from {self.reid_path}")
 
         model.eval()
         model.cuda()
