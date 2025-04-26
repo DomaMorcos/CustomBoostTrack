@@ -1,5 +1,5 @@
 """
-    This script is adopted from the SORT script by Alex Bewley alex@bewley.ai
+This script is adopted from the SORT script by Alex Bewley alex@bewley.ai
 """
 from __future__ import print_function
 
@@ -19,7 +19,9 @@ from tracker.embedding import EmbeddingComputer
 from tracker.assoc import associate, iou_batch, MhDist_similarity, shape_similarity, soft_biou_batch
 from tracker.ecc import ECC
 from tracker.kalmanfilter import KalmanFilter
-from tracker.GNN import MOTGNN
+from torch_geometric.nn import GCNConv
+import torch.nn as nn
+import torch.nn.functional as F
 
 def convert_bbox_to_z(bbox):
     """
@@ -113,6 +115,28 @@ class KalmanBoxTracker(object):
     def get_emb(self):
         return self.emb
 
+class MOTGNN(nn.Module):
+    def __init__(self, input_dim=260, hidden_dim=64, edge_dim=3):
+        super(MOTGNN, self).__init__()
+        self.conv1 = GCNConv(input_dim, hidden_dim)
+        self.conv2 = GCNConv(hidden_dim, hidden_dim)
+        self.edge_mlp = nn.Sequential(
+            nn.Linear(hidden_dim * 2 + edge_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, 1)
+        )
+
+    def forward(self, x, edge_index, edge_attr):
+        x = self.conv1(x, edge_index).relu()
+        x = self.conv2(x, edge_index).relu()
+        edge_scores = []
+        for i, (src, dst) in enumerate(edge_index.t()):
+            edge_feat = torch.cat([x[src], x[dst], edge_attr[i]], dim=-1)
+            score = self.edge_mlp(edge_feat).sigmoid()
+            edge_scores.append(score)
+        scores = torch.stack(edge_scores).squeeze() if edge_scores else torch.tensor([], dtype=torch.float32, device=x.device)
+        return scores
+
 class BoostTrack(object):
     def __init__(self, video_name: Optional[str] = None, gnn_model_path: Optional[str] = None):
         self.frame_count = 0
@@ -142,7 +166,7 @@ class BoostTrack(object):
         # GNN initialization
         self.gnn = None
         if gnn_model_path:
-            self.gnn = MOTGNN(input_dim=260, hidden_dim=128, edge_dim=3).to('cuda')
+            self.gnn = MOTGNN(input_dim=260, hidden_dim=64, edge_dim=3).to('cuda')
             self.gnn.load_state_dict(torch.load(gnn_model_path))
             self.gnn.eval()
             logger.info(f"Loaded GNN model from {gnn_model_path}")
@@ -289,7 +313,7 @@ class BoostTrack(object):
             iou_limit = 0.3
             if len(boost_detections) > 0:
                 bdiou = iou_batch(boost_detections, boost_detections) - np.eye(len(boost_detections))
-                bdiou_max = bdiou.max(axis=1)
+                bdiou_max = bdiou.max(1)
                 remaining_boxes = boost_detections_args[bdiou_max <= iou_limit]
                 args = np.argwhere(bdiou_max > iou_limit).reshape((-1,))
                 for i in range(len(args)):
