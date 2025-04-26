@@ -373,18 +373,17 @@ class BoostTrack(object):
             x1, y1, x2, y2 = trk[:4] / np.array([w, h, w, h])
             emb = trk_embs[i]
             node_features.append(np.concatenate([[x1, y1, x2, y2], emb]))
-        node_features = torch.tensor(node_features, dtype=torch.float32)
+        node_features = torch.tensor(np.array(node_features), dtype=torch.float32)
 
         edge_index = []
         edge_attr = []
         for i in range(len(dets)):
             for j in range(len(trks)):
+                edge_index.append([i, j + len(dets)])
                 iou = iou_batch(dets[i:i+1, :4], trks[j:j+1, :4])[0, 0]
-                if iou > 0.1:
-                    edge_index.append([i, j + len(dets)])
-                    sim = np.dot(dets_embs[i], trk_embs[j]) / (np.linalg.norm(dets_embs[i]) * np.linalg.norm(trk_embs[j]) + 1e-6)
-                    mhd = self._compute_mhd(dets[i, :4], trks[j], self.trackers[j].kf)
-                    edge_attr.append([iou, sim, mhd])
+                sim = np.dot(dets_embs[i], trk_embs[j]) / (np.linalg.norm(dets_embs[i]) * np.linalg.norm(trk_embs[j]) + 1e-6)
+                mhd = self._compute_mhd(dets[i, :4], trks[j], self.trackers[j].kf)
+                edge_attr.append([iou, sim, mhd])
         edge_index = torch.tensor(edge_index, dtype=torch.long).t() if edge_index else torch.zeros((2, 0), dtype=torch.long)
         edge_attr = torch.tensor(edge_attr, dtype=torch.float32) if edge_attr else torch.zeros((0, 3), dtype=torch.float32)
 
