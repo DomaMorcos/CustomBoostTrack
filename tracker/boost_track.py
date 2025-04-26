@@ -141,10 +141,10 @@ class BoostTrack(object):
     def __init__(self, video_name: Optional[str] = None, gnn_model_path: Optional[str] = None):
         self.frame_count = 0
         self.trackers: List[KalmanBoxTracker] = []
-        self.max_age = GeneralSettings.max_age(video_name) * 2  # Increased to 60
-        self.iou_threshold = GeneralSettings['iou_threshold']
-        self.det_thresh = GeneralSettings['det_thresh'] * 0.8  # Lowered, e.g., 0.4 if default 0.5
-        self.min_hits = GeneralSettings['min_hits']
+        self.max_age = GeneralSettings.max_age(video_name) * 2  # e.g., 60
+        self.iou_threshold = GeneralSettings['iou_threshold'] * 0.6  # e.g., 0.3 if default 0.5
+        self.det_thresh = GeneralSettings['det_thresh'] * 0.6  # e.g., 0.3 if default 0.5
+        self.min_hits = 1  # Lowered from typical 3
         self.lambda_iou = BoostTrackSettings['lambda_iou']
         self.lambda_mhd = BoostTrackSettings['lambda_mhd']
         self.lambda_shape = BoostTrackSettings['lambda_shape']
@@ -233,30 +233,29 @@ class BoostTrack(object):
             graph = self._create_inference_graph(dets, dets_embs, trks, trk_embs, img_numpy.shape[:2])
             with torch.no_grad():
                 edge_scores = self.gnn(graph.x.cuda(), graph.edge_index.cuda(), graph.edge_attr.cuda()).cpu().numpy()
-                # Normalize edge_scores to [0, 1] to ensure some scores are high enough
+                # Normalize edge_scores to [0, 1]
                 edge_scores = (edge_scores - edge_scores.min()) / (edge_scores.max() - edge_scores.min() + 1e-6)
                 logger.info(f"Edge scores: min={edge_scores.min():.3f}, max={edge_scores.max():.3f}, mean={edge_scores.mean():.3f}")
             cost_matrix = 1 - edge_scores.reshape(len(dets), len(self.trackers))
             matched, unmatched_dets, unmatched_trks = self._hungarian_matching(cost_matrix)
             sym_matrix = cost_matrix
             logger.info(f"GNN matched: {len(matched)}, unmatched_dets: {len(unmatched_dets)}, unmatched_trks: {len(unmatched_trks)}")
-        
-        # Fallback to associate if GNN produces no matches
-        if not matched and len(dets) > 0 and len(self.trackers) > 0:
-            logger.info("Falling back to associate method")
-            matched, unmatched_dets, unmatched_trks, sym_matrix = associate(
-                dets,
-                trks,
-                self.iou_threshold,
-                mahalanobis_distance=self.get_mh_dist_matrix(dets),
-                track_confidence=confs,
-                detection_confidence=scores,
-                emb_cost=emb_cost,
-                lambda_iou=self.lambda_iou,
-                lambda_mhd=self.lambda_mhd,
-                lambda_shape=self.lambda_shape
-            )
-            logger.info(f"Associate matched: {len(matched)}, unmatched_dets: {len(unmatched_dets)}, unmatched_trks: {len(unmatched_trks)}")
+            # Fallback if too few matches
+            if len(matched) < 0.5 * len(dets):
+                logger.info("Falling back to associate method due to insufficient GNN matches")
+                matched, unmatched_dets, unmatched_trks, sym_matrix = associate(
+                    dets,
+                    trks,
+                    self.iou_threshold,
+                    mahalanobis_distance=self.get_mh_dist_matrix(dets),
+                    track_confidence=confs,
+                    detection_confidence=scores,
+                    emb_cost=emb_cost,
+                    lambda_iou=self.lambda_iou,
+                    lambda_mhd=self.lambda_mhd,
+                    lambda_shape=self.lambda_shape
+                )
+                logger.info(f"Associate matched: {len(matched)}, unmatched_dets: {len(unmatched_dets)}, unmatched_trks: {len(unmatched_trks)}")
 
         # Handle case when no trackers exist
         if len(self.trackers) == 0 and len(dets) > 0:
@@ -271,21 +270,27 @@ class BoostTrack(object):
             self.trackers[m[1]].update(dets[m[0], :], scores[m[0]])
             self.trackers[m[1]].update_emb(dets_embs[m[0]], alpha=dets_alpha[m[0]])
 
+        new_trackers = 0
         for i in unmatched_dets:
             if dets[i, 4] >= self.det_thresh:
                 self.trackers.append(KalmanBoxTracker(dets[i, :], emb=dets_embs[i]))
+                new_trackers += 1
+        logger.info(f"Created {new_trackers} new trackers from unmatched_dets")
 
         ret = []
         i = len(self.trackers)
+        tracker_stats = []
         for trk in reversed(self.trackers):
             d = trk.get_state()[0]
-            if (trk.time_since_update < 1) and (trk.hit_streak >= self.min_hits or self.frame_count <= self.min_hits):
+            if (trk.time_since_update <= 1) and (trk.hit_streak >= self.min_hits or self.frame_count <= self.min_hits):
                 ret.append(np.concatenate((d, [trk.id + 1], [trk.get_confidence()])).reshape(1, -1))
+            tracker_stats.append((trk.id, trk.time_since_update, trk.hit_streak))
             i -= 1
             if trk.time_since_update > self.max_age:
                 self.trackers.pop(i)
-
+        logger.info(f"Tracker stats (id, time_since_update, hit_streak): {tracker_stats[:5]}... (total {len(tracker_stats)})")
         if len(ret) > 0:
+            logger.info(f"Returning {len(ret)} tracks")
             return np.concatenate(ret)
         logger.info(f"No tracks returned, trackers: {len(self.trackers)}")
         return np.empty((0, 5))
@@ -412,7 +417,7 @@ class BoostTrack(object):
 
     def _hungarian_matching(self, cost_matrix):
         row_ind, col_ind = linear_sum_assignment(cost_matrix)
-        matched = [[i, j] for i, j in zip(row_ind, col_ind) if cost_matrix[i, j] < 1 - self.iou_threshold]
+        matched = [[i, j] for i, j in zip(row_ind, col_ind) if cost_matrix[i, j] < 1 - self.iou_threshold and (1 - cost_matrix[i, j]) > 0.3]
         unmatched_dets = [i for i in range(len(cost_matrix)) if i not in row_ind]
         unmatched_trks = [j for j in range(cost_matrix.shape[1]) if j not in col_ind]
         return matched, unmatched_dets, unmatched_trks
