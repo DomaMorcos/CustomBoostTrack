@@ -141,9 +141,9 @@ class BoostTrack(object):
     def __init__(self, video_name: Optional[str] = None, gnn_model_path: Optional[str] = None):
         self.frame_count = 0
         self.trackers: List[KalmanBoxTracker] = []
-        self.max_age = GeneralSettings.max_age(video_name)
+        self.max_age = GeneralSettings.max_age(video_name) * 2  # Increased to 60
         self.iou_threshold = GeneralSettings['iou_threshold']
-        self.det_thresh = GeneralSettings['det_thresh']
+        self.det_thresh = GeneralSettings['det_thresh'] * 0.8  # Lowered, e.g., 0.4 if default 0.5
         self.min_hits = GeneralSettings['min_hits']
         self.lambda_iou = BoostTrackSettings['lambda_iou']
         self.lambda_mhd = BoostTrackSettings['lambda_mhd']
@@ -196,10 +196,9 @@ class BoostTrack(object):
             for trk in self.trackers:
                 trk.camera_update(transform)
 
-        # get predicted locations from existing trackers.
+        # Get predicted locations from existing trackers
         trks = np.zeros((len(self.trackers), 5))
         confs = np.zeros((len(self.trackers), 1))
-
         for t in range(len(trks)):
             pos = self.trackers[t].predict()[0]
             confs[t] = self.trackers[t].get_confidence()
@@ -229,14 +228,22 @@ class BoostTrack(object):
         emb_cost = None if self.embedder is None else emb_cost
 
         # GNN-based association
+        matched, unmatched_dets, unmatched_trks, sym_matrix = [], [], [], None
         if self.gnn and len(dets) > 0 and len(self.trackers) > 0:
             graph = self._create_inference_graph(dets, dets_embs, trks, trk_embs, img_numpy.shape[:2])
             with torch.no_grad():
                 edge_scores = self.gnn(graph.x.cuda(), graph.edge_index.cuda(), graph.edge_attr.cuda()).cpu().numpy()
+                # Normalize edge_scores to [0, 1] to ensure some scores are high enough
+                edge_scores = (edge_scores - edge_scores.min()) / (edge_scores.max() - edge_scores.min() + 1e-6)
+                logger.info(f"Edge scores: min={edge_scores.min():.3f}, max={edge_scores.max():.3f}, mean={edge_scores.mean():.3f}")
             cost_matrix = 1 - edge_scores.reshape(len(dets), len(self.trackers))
             matched, unmatched_dets, unmatched_trks = self._hungarian_matching(cost_matrix)
             sym_matrix = cost_matrix
-        else:
+            logger.info(f"GNN matched: {len(matched)}, unmatched_dets: {len(unmatched_dets)}, unmatched_trks: {len(unmatched_trks)}")
+        
+        # Fallback to associate if GNN produces no matches
+        if not matched and len(dets) > 0 and len(self.trackers) > 0:
+            logger.info("Falling back to associate method")
             matched, unmatched_dets, unmatched_trks, sym_matrix = associate(
                 dets,
                 trks,
@@ -249,6 +256,12 @@ class BoostTrack(object):
                 lambda_mhd=self.lambda_mhd,
                 lambda_shape=self.lambda_shape
             )
+            logger.info(f"Associate matched: {len(matched)}, unmatched_dets: {len(unmatched_dets)}, unmatched_trks: {len(unmatched_trks)}")
+
+        # Handle case when no trackers exist
+        if len(self.trackers) == 0 and len(dets) > 0:
+            unmatched_dets = list(range(len(dets)))
+            matched = []
 
         trust = (dets[:, 4] - self.det_thresh) / (1 - self.det_thresh)
         af = 0.95
@@ -274,6 +287,7 @@ class BoostTrack(object):
 
         if len(ret) > 0:
             return np.concatenate(ret)
+        logger.info(f"No tracks returned, trackers: {len(self.trackers)}")
         return np.empty((0, 5))
 
     def dump_cache(self):
