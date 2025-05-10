@@ -73,6 +73,7 @@ def get_main_args():
         ("--reid_weight1", {"type": float, "default": 0.5}),
         ("--reid_weight2", {"type": float, "default": 0.5}),
         ("--frame_rate", {"type": int, "default": 25}),
+        ("--visualize", {"action": "store_true", "help": "Enable visualization of detections"}),
     ]
     
     for arg_name, kwargs in new_args:
@@ -105,6 +106,42 @@ def my_data_loader(main_path):
         height, width, _ = np_img.shape
         img, target = preproc(np_img, None, (height, width))
         yield ((img.reshape(1, *img.shape), np_img), target, (height, width, torch.tensor(idx), None, ["test"]), None)
+
+def visualize_detections(np_img, model1_preds, model2_preds, ensemble_preds, video_name, frame_id, vis_folder):
+    """Visualize detections from both YOLO models and ensemble, saving to disk."""
+    img_model1 = np_img.copy()
+    img_model2 = np_img.copy()
+    img_ensemble = np_img.copy()
+    
+    # Draw model1 detections (YOLO) in blue
+    if len(model1_preds) > 0:
+        for pred in model1_preds:
+            x1, y1, x2, y2, conf = pred.tolist()
+            cv2.rectangle(img_model1, (int(x1), int(y1)), (int(x2), int(y2)), (255, 0, 0), 2)
+            cv2.putText(img_model1, f"{conf:.2f}", (int(x1), int(y1) - 10), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+    
+    # Draw model2 detections (YOLO) in green
+    if len(model2_preds) > 0:
+        for pred in model2_preds:
+            x1, y1, x2, y2, conf = pred.tolist()
+            cv2.rectangle(img_model2, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 2)
+            cv2.putText(img_model2, f"{conf:.2f}", (int(x1), int(y1) - 10), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+    
+    # Draw ensemble detections in red
+    if len(ensemble_preds) > 0:
+        for pred in ensemble_preds:
+            x1, y1, x2, y2, conf = pred.tolist()
+            cv2.rectangle(img_ensemble, (int(x1), int(y1)), (int(x2), int(y2)), (0, 0, 255), 2)
+            cv2.putText(img_ensemble, f"{conf:.2f}", (int(x1), int(y1) - 10), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+    
+    # Save images
+    os.makedirs(os.path.join(vis_folder, video_name), exist_ok=True)
+    cv2.imwrite(os.path.join(vis_folder, video_name, f"model1_frame_{frame_id:06d}.jpg"), img_model1)
+    cv2.imwrite(os.path.join(vis_folder, video_name, f"model2_frame_{frame_id:06d}.jpg"), img_model2)
+    cv2.imwrite(os.path.join(vis_folder, video_name, f"ensemble_frame_{frame_id:06d}.jpg"), img_ensemble)
 
 def main():
     args = get_main_args()
@@ -147,6 +184,11 @@ def main():
     model2 = YoloDetector(args.model2_path)
     det = EnsembleDetector(model1, model2, args.model1_weight, args.model2_weight, args.iou_thresh, args.conf_thresh)
     
+    # Set up visualization folder
+    vis_folder = os.path.join(args.result_folder, args.exp_name, "visualizations") if args.visualize else None
+    if args.visualize:
+        os.makedirs(vis_folder, exist_ok=True)
+    
     for (img, np_img), _, info, _ in my_data_loader(args.dataset_path):
         frame_id = info[2].item()
         video_name = info[4][0].split("/")[0]
@@ -162,11 +204,19 @@ def main():
                 tracker.dump_cache()
             tracker = BoostTrack(video_name=video_name)
 
-        pred = det(np_img)
+        # Get individual and ensemble predictions
+        model1_preds = model1(np_img)
+        model2_preds = model2(np_img)
+        ensemble_preds = det(np_img)
+        
+        # Visualize if enabled
+        if args.visualize:
+            visualize_detections(np_img, model1_preds, model2_preds, ensemble_preds, video_name, frame_id, vis_folder)
+        
         start_time = time.time()
-        if pred is None:
+        if ensemble_preds is None:
             continue
-        targets = tracker.update(pred, img, np_img, tag)
+        targets = tracker.update(ensemble_preds, img, np_img, tag)
         tlwhs, ids, confs = utils.filter_targets(targets, GeneralSettings['aspect_ratio_thresh'], GeneralSettings['min_box_area'])
         print(f"{len(ids)} ids detected")
         total_time += time.time() - start_time
@@ -181,6 +231,8 @@ def main():
         result_filename = os.path.join(folder, f"{name}.txt")
         utils.write_results_no_score(result_filename, res)
     print(f"Finished, results saved to {folder}")
+    if args.visualize:
+        print(f"Visualizations saved to {vis_folder}")
 
     if not args.no_post:
         post_folder = os.path.join(args.result_folder, args.exp_name + "_post")
