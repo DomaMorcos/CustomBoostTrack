@@ -1,6 +1,7 @@
 import os
 import shutil
 import time
+import math
 
 import dataset
 import utils
@@ -74,6 +75,7 @@ def get_main_args():
         ("--reid_weight2", {"type": float, "default": 0.5}),
         ("--frame_rate", {"type": int, "default": 25}),
         ("--visualize", {"action": "store_true", "help": "Enable visualization of detections and tracks"}),
+        ("--track_percent", {"type": float, "default": 1.0, "help": "Percentage of video to track (0.0 to 1.0)"}),
     ]
     
     for arg_name, kwargs in new_args:
@@ -91,11 +93,19 @@ def get_main_args():
     
     if args.test_dataset:
         args.result_folder = args.result_folder.replace("-val", "-test")
+    
+    # Validate track_percent
+    if not 0.0 < args.track_percent <= 1.0:
+        raise ValueError("track_percent must be between 0.0 and 1.0")
+    
     return args
 
-def my_data_loader(main_path):
+def my_data_loader(main_path, track_percent=1.0):
     img_pathes = [os.path.join(main_path, img) for img in os.listdir(main_path)]
     img_pathes = sorted(img_pathes)
+    # Limit to track_percent of images
+    num_images = math.ceil(len(img_pathes) * track_percent)
+    img_pathes = img_pathes[:num_images]
     preproc = dataset.ValTransform(
         rgb_means=(0.485, 0.456, 0.406),
         std=(0.229, 0.224, 0.225),
@@ -161,8 +171,8 @@ def visualize_gbi_tracks(dataset_path, gbi_folder, vis_folder_gbi):
                     tracks[frame_id] = []
                 tracks[frame_id].append((track_id, x, y, w, h))
         
-        # Find corresponding images in dataset_path
-        video_img_path = os.path.join(dataset_path, video_name)
+        # Use dataset_path directly as the image directory
+        video_img_path = dataset_path
         if not os.path.exists(video_img_path):
             print(f"Warning: Image path {video_img_path} not found for GBI visualization")
             continue
@@ -197,8 +207,8 @@ def visualize_gbi_tracks(dataset_path, gbi_folder, vis_folder_gbi):
 
 def visualize_selected_frames(dataset_path, gbi_folder, stored_detections, selected_frames, video_name, selected_folder):
     """Visualize model1, model2, ensemble, and GBI tracks for 10 selected frames."""
-    # Find corresponding images in dataset_path
-    video_img_path = os.path.join(dataset_path, video_name)
+    # Use dataset_path directly as the image directory
+    video_img_path = dataset_path
     if not os.path.exists(video_img_path):
         print(f"Warning: Image path {video_img_path} not found for selected frames visualization")
         return
@@ -321,7 +331,7 @@ def main():
     if args.visualize:
         os.makedirs(vis_folder, exist_ok=True)
     
-    for (img, np_img), _, info, img_path in my_data_loader(args.dataset_path):
+    for (img, np_img), _, info, img_path in my_data_loader(args.dataset_path, args.track_percent):
         frame_id = info[2].item()
         video_name = info[4][0].split("/")[0]
         tag = f"{video_name}:{frame_id}"
