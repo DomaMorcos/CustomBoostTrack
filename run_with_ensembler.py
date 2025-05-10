@@ -73,7 +73,7 @@ def get_main_args():
         ("--reid_weight1", {"type": float, "default": 0.5}),
         ("--reid_weight2", {"type": float, "default": 0.5}),
         ("--frame_rate", {"type": int, "default": 25}),
-        ("--visualize", {"action": "store_true", "help": "Enable visualization of detections"}),
+        ("--visualize", {"action": "store_true", "help": "Enable visualization of detections and tracks"}),
     ]
     
     for arg_name, kwargs in new_args:
@@ -105,7 +105,7 @@ def my_data_loader(main_path):
         # get size of image
         height, width, _ = np_img.shape
         img, target = preproc(np_img, None, (height, width))
-        yield ((img.reshape(1, *img.shape), np_img), target, (height, width, torch.tensor(idx), None, ["test"]), None)
+        yield ((img.reshape(1, *img.shape), np_img), target, (height, width, torch.tensor(idx), None, ["test"]), img_path)
 
 def visualize_detections(np_img, model1_preds, model2_preds, ensemble_preds, video_name, frame_id, vis_folder):
     """Visualize detections from both YOLO models and ensemble, saving to disk."""
@@ -143,6 +143,135 @@ def visualize_detections(np_img, model1_preds, model2_preds, ensemble_preds, vid
     cv2.imwrite(os.path.join(vis_folder, video_name, f"model2_frame_{frame_id:06d}.jpg"), img_model2)
     cv2.imwrite(os.path.join(vis_folder, video_name, f"ensemble_frame_{frame_id:06d}.jpg"), img_ensemble)
 
+def visualize_gbi_tracks(dataset_path, gbi_folder, vis_folder_gbi):
+    """Visualize tracked objects from GBI output, saving to disk."""
+    for file_name in os.listdir(gbi_folder):
+        video_name = file_name.split('.')[0]
+        gbi_path = os.path.join(gbi_folder, file_name)
+        
+        # Read GBI results (format: frame_id, track_id, x, y, w, h, conf, ...)
+        tracks = {}
+        with open(gbi_path, 'r') as f:
+            for line in f:
+                parts = line.strip().split(',')
+                frame_id = int(parts[0])
+                track_id = int(parts[1])
+                x, y, w, h = map(float, parts[2:6])
+                if frame_id not in tracks:
+                    tracks[frame_id] = []
+                tracks[frame_id].append((track_id, x, y, w, h))
+        
+        # Find corresponding images in dataset_path
+        video_img_path = os.path.join(dataset_path, video_name)
+        if not os.path.exists(video_img_path):
+            print(f"Warning: Image path {video_img_path} not found for GBI visualization")
+            continue
+        
+        img_paths = sorted([os.path.join(video_img_path, img) for img in os.listdir(video_img_path) if img.endswith(('.jpg', '.png'))])
+        
+        # Visualize each frame
+        for frame_id in tracks:
+            # Find the corresponding image
+            img_idx = frame_id - 1  # Frame IDs are 1-based, image list is 0-based
+            if img_idx >= len(img_paths):
+                print(f"Warning: No image found for frame {frame_id} in {video_name}")
+                continue
+            
+            np_img = cv2.imread(img_paths[img_idx])
+            if np_img is None:
+                print(f"Warning: Failed to load image {img_paths[img_idx]}")
+                continue
+            
+            # Draw tracks in yellow with track IDs
+            for track_id, x, y, w, h in tracks[frame_id]:
+                x1, y1 = int(x), int(y)
+                x2, y2 = int(x + w), int(y + h)
+                cv2.rectangle(np_img, (x1, y1), (x2, y2), (0, 255, 255), 2)  # Yellow
+                cv2.putText(np_img, f"ID:{track_id}", (x1, y1 - 10), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+            
+            # Save visualization
+            vis_path = os.path.join(vis_folder_gbi, video_name)
+            os.makedirs(vis_path, exist_ok=True)
+            cv2.imwrite(os.path.join(vis_path, f"gbi_frame_{frame_id:06d}.jpg"), np_img)
+
+def visualize_selected_frames(dataset_path, gbi_folder, stored_detections, selected_frames, video_name, selected_folder):
+    """Visualize model1, model2, ensemble, and GBI tracks for 10 selected frames."""
+    # Find corresponding images in dataset_path
+    video_img_path = os.path.join(dataset_path, video_name)
+    if not os.path.exists(video_img_path):
+        print(f"Warning: Image path {video_img_path} not found for selected frames visualization")
+        return
+    
+    img_paths = sorted([os.path.join(video_img_path, img) for img in os.listdir(video_img_path) if img.endswith(('.jpg', '.png'))])
+    
+    # Read GBI results
+    gbi_path = os.path.join(gbi_folder, f"{video_name}.txt")
+    tracks = {}
+    if os.path.exists(gbi_path):
+        with open(gbi_path, 'r') as f:
+            for line in f:
+                parts = line.strip().split(',')
+                frame_id = int(parts[0])
+                track_id = int(parts[1])
+                x, y, w, h = map(float, parts[2:6])
+                if frame_id not in tracks:
+                    tracks[frame_id] = []
+                tracks[frame_id].append((track_id, x, y, w, h))
+    
+    # Visualize selected frames
+    for frame_id in selected_frames:
+        # Load image
+        img_idx = frame_id - 1  # Frame IDs are 1-based, image list is 0-based
+        if img_idx >= len(img_paths):
+            print(f"Warning: No image found for frame {frame_id} in {video_name}")
+            continue
+        
+        np_img = cv2.imread(img_paths[img_idx])
+        if np_img is None:
+            print(f"Warning: Failed to load image {img_paths[img_idx]}")
+            continue
+        
+        # Visualize model1 detections (blue)
+        img_model1 = np_img.copy()
+        if frame_id in stored_detections['model1']:
+            for x1, y1, x2, y2, conf in stored_detections['model1'][frame_id]:
+                cv2.rectangle(img_model1, (int(x1), int(y1)), (int(x2), int(y2)), (255, 0, 0), 2)
+                cv2.putText(img_model1, f"{conf:.2f}", (int(x1), int(y1) - 10), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+        
+        # Visualize model2 detections (green)
+        img_model2 = np_img.copy()
+        if frame_id in stored_detections['model2']:
+            for x1, y1, x2, y2, conf in stored_detections['model2'][frame_id]:
+                cv2.rectangle(img_model2, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 2)
+                cv2.putText(img_model2, f"{conf:.2f}", (int(x1), int(y1) - 10), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+        
+        # Visualize ensemble detections (red)
+        img_ensemble = np_img.copy()
+        if frame_id in stored_detections['ensemble']:
+            for x1, y1, x2, y2, conf in stored_detections['ensemble'][frame_id]:
+                cv2.rectangle(img_ensemble, (int(x1), int(y1)), (int(x2), int(y2)), (0, 0, 255), 2)
+                cv2.putText(img_ensemble, f"{conf:.2f}", (int(x1), int(y1) - 10), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+        
+        # Visualize GBI tracks (yellow)
+        img_gbi = np_img.copy()
+        if frame_id in tracks:
+            for track_id, x, y, w, h in tracks[frame_id]:
+                x1, y1 = int(x), int(y)
+                x2, y2 = int(x + w), int(y + h)
+                cv2.rectangle(img_gbi, (x1, y1), (x2, y2), (0, 255, 255), 2)
+                cv2.putText(img_gbi, f"ID:{track_id}", (x1, y1 - 10), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+        
+        # Save visualizations
+        for subfolder, img in [('model1', img_model1), ('model2', img_model2), ('ensemble', img_ensemble), ('gbi', img_gbi)]:
+            vis_path = os.path.join(selected_folder, video_name, subfolder)
+            os.makedirs(vis_path, exist_ok=True)
+            cv2.imwrite(os.path.join(vis_path, f"frame_{frame_id:06d}.jpg"), img)
+
 def main():
     args = get_main_args()
     GeneralSettings.values['dataset'] = args.dataset
@@ -179,6 +308,9 @@ def main():
     results = {}
     frame_count = 0
     total_time = 0
+    stored_detections = {'model1': {}, 'model2': {}, 'ensemble': {}}
+    first_video_name = None
+    frame_ids = []
 
     model1 = YoloDetector(args.model1_path)
     model2 = YoloDetector(args.model2_path)
@@ -189,12 +321,14 @@ def main():
     if args.visualize:
         os.makedirs(vis_folder, exist_ok=True)
     
-    for (img, np_img), _, info, _ in my_data_loader(args.dataset_path):
+    for (img, np_img), _, info, img_path in my_data_loader(args.dataset_path):
         frame_id = info[2].item()
         video_name = info[4][0].split("/")[0]
         tag = f"{video_name}:{frame_id}"
         if video_name not in results:
             results[video_name] = []
+            if first_video_name is None:
+                first_video_name = video_name
 
         print(f"Processing {video_name}:{frame_id}\r", end="")
         if frame_id == 1:
@@ -208,6 +342,13 @@ def main():
         model1_preds = model1(np_img)
         model2_preds = model2(np_img)
         ensemble_preds = det(np_img)
+        
+        # Store detections for the first video
+        if args.visualize and video_name == first_video_name:
+            stored_detections['model1'][frame_id] = model1_preds.tolist() if len(model1_preds) > 0 else []
+            stored_detections['model2'][frame_id] = model2_preds.tolist() if len(model2_preds) > 0 else []
+            stored_detections['ensemble'][frame_id] = ensemble_preds.tolist() if len(ensemble_preds) > 0 else []
+            frame_ids.append(frame_id)
         
         # Visualize if enabled
         if args.visualize:
@@ -247,6 +388,10 @@ def main():
         print(f"Linear interpolation post-processing applied, saved to {post_folder_data}.")
 
         post_folder_gbi = os.path.join(args.result_folder, args.exp_name + "_post_gbi", "data")
+        vis_folder_gbi = os.path.join(args.result_folder, args.exp_name + "_post_gbi", "visualizations") if args.visualize else None
+        if args.visualize:
+            os.makedirs(vis_folder_gbi, exist_ok=True)
+        
         if not os.path.exists(post_folder_gbi):
             os.makedirs(post_folder_gbi)
         for file_name in os.listdir(post_folder_data):
@@ -254,6 +399,24 @@ def main():
             out_path2 = os.path.join(post_folder_gbi, file_name)
             GBInterpolation(path_in=in_path, path_out=out_path2, interval=args.interval)
         print(f"Gradient boosting interpolation post-processing applied, saved to {post_folder_gbi}.")
+        
+        # Visualize GBI tracks
+        if args.visualize:
+            visualize_gbi_tracks(args.dataset_path, post_folder_gbi, vis_folder_gbi)
+            print(f"GBI visualizations saved to {vis_folder_gbi}")
+        
+        # Visualize 10 selected frames for the first video
+        if args.visualize and first_video_name:
+            selected_folder = os.path.join(args.result_folder, args.exp_name + "_post_gbi", "selected_frames")
+            os.makedirs(selected_folder, exist_ok=True)
+            # Select 10 evenly spaced frames
+            if len(frame_ids) >= 10:
+                step = len(frame_ids) // 10
+                selected_frames = [frame_ids[i * step] for i in range(10)]
+            else:
+                selected_frames = frame_ids[:10]  # Use all if fewer than 10
+            visualize_selected_frames(args.dataset_path, post_folder_gbi, stored_detections, selected_frames, first_video_name, selected_folder)
+            print(f"Selected frame visualizations saved to {selected_folder}")
 
 if __name__ == "__main__":
     main()
