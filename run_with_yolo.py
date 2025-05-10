@@ -96,7 +96,7 @@ def main():
     total_time = 0
 
 
-    det = YoloDetector(args.yolo_path, conf=args.conf)
+    det = YoloDetector(args.yolo_path, conf=args.yolo_conf)
     for (img, np_img), _ , info, _ in my_data_loader(args.dataset_path):
         frame_id = info[2].item()
         video_name = info[4][0].split("/")[0]
