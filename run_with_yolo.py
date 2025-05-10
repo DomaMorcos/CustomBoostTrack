@@ -46,6 +46,7 @@ def get_main_args():
     parser.add_argument("--yolo_path", type=str, help="path to yolo weights")
     parser.add_argument("--reid_path", type=str, help="path to reid weights (osnet_ain_x1_0)")
     parser.add_argument("--frame_rate", type=int, default=25, help="frame rate of the video")
+    parser.add_argument("--conf", type=float, help="conf")
 
     args = parser.parse_args()
     if args.dataset == "mot17":
@@ -95,7 +96,7 @@ def main():
     total_time = 0
 
 
-    det = YoloDetector(args.yolo_path)
+    det = YoloDetector(args.yolo_path, conf=args.conf)
     for (img, np_img), _ , info, _ in my_data_loader(args.dataset_path):
         frame_id = info[2].item()
         video_name = info[4][0].split("/")[0]

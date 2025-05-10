@@ -25,11 +25,15 @@ class Detector(ABC):
         pass
 
 class YoloDetector(Detector):
-    def __init__(self, yolo_path):
+    def __init__(self, yolo_path, conf = None):
         self.model = YOLO(yolo_path)
+        self.conf = conf
 
     def __call__(self, img):
-        results = self.model(img)[0]  # Let Ultralytics scale to input resolution
+        if self.conf:
+            results = self.model(img, conf = self.conf)[0] 
+        else:   
+            results = self.model(img)[0]  # Let Ultralytics scale to input resolution
         annotations = []
         for box in results.boxes:
             if int(box.cls) == 0:  # Only keep 'person' class (class ID 0)
