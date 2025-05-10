@@ -46,7 +46,7 @@ def get_main_args():
     parser.add_argument("--yolo_path", type=str, help="path to yolo weights")
     parser.add_argument("--reid_path", type=str, help="path to reid weights (osnet_ain_x1_0)")
     parser.add_argument("--frame_rate", type=int, default=25, help="frame rate of the video")
-    parser.add_argument("--conf", type=float, help="conf")
+    parser.add_argument("--yolo_conf", type=float, default=0.25, help="conf")
 
     args = parser.parse_args()
     if args.dataset == "mot17":
