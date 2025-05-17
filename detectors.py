@@ -29,7 +29,7 @@ class YoloDetector(Detector):
         self.model = YOLO(yolo_path)
 
     def __call__(self, img):
-        results = self.model(img)[0]  # Let Ultralytics scale to input resolution
+        results = self.model(img, half=True)[0]  # Let Ultralytics scale to input resolution
         annotations = []
         for box in results.boxes:
             if int(box.cls) == 0:  # Only keep 'person' class (class ID 0)
