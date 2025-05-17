@@ -39,7 +39,70 @@ class YoloDetector(Detector):
         return torch.tensor(annotations, dtype=torch.float32) if annotations else torch.zeros((0, 5), dtype=torch.float32)
 
 # EnsembleDetector remains unchanged as it assumes original resolution inputs
+
+class YoloDetectorBatch:
+    def __init__(self, yolo_path):
+        from ultralytics import YOLO
+        import torch
+        
+        self.model = YOLO(yolo_path)
+        
+        # Set device for inference
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        print(f"Using device: {self.device}")
+        
+        # Move model to the appropriate device
+        self.model.to(self.device)
+        self.model.eval()
+        self.batch_size = 4  # Can be increased based on available memory
+        
+    def __call__(self, img, conf_thres=None):
+        import torch
+        
+        
+        # Run inference with proper input preparation
+        with torch.no_grad():  # No gradient calculation needed for inference
+            # Using stream=True but properly handling the generator
+            results_gen = self.model(img, stream=True)
+            # Get the first result from the generator
+            results = next(results_gen)
+        
+        # Process results more efficiently
+        boxes = results.boxes
+        if len(boxes) == 0:
+            return torch.zeros((0, 5))
+            
+        # Extract all boxes at once instead of looping
+        annotations = torch.cat([
+            boxes.xyxy,
+            boxes.conf.unsqueeze(1)
+        ], dim=1)
+        
+        return annotations
+        
+    def batch_inference(self, images):
+        """Run inference on a batch of images for better performance."""
+        import torch
+        
+        with torch.no_grad():
+            results = self.model(images, half= True, stream=True, batch=len(images)) # hota 69.897, after half-> hota = 70.264
+            
+        all_annotations = []
+        for result in results:
+            if len(result.boxes) == 0:
+                all_annotations.append(torch.zeros((0, 5)))
+                continue
+                
+            boxes = result.boxes
+            annotations = torch.cat([
+                boxes.xyxy,
+                boxes.conf.unsqueeze(1)
+            ], dim=1)
+            all_annotations.append(annotations)
+            
+        return all_annotations
     
+
 
 # Faster R-CNN Detector (removed conf_threshold)
 class FasterRCNNDetector:
