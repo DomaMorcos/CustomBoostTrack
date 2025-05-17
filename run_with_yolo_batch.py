@@ -103,9 +103,11 @@ def main():
     batch_frames = []
     batch_info = []
     
-    data_loader = my_data_loader(args.dataset_path)
+    from customDataset import get_dataset
+    data_loader = get_dataset(args.dataset_path)
     
     for (img, np_img), _, info, _ in data_loader:
+        np_img = np_img.squeeze(0).numpy() 
         frame_id = info[2].item()
         video_name = info[4][0].split("/")[0]
         
