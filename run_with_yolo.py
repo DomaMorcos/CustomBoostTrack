@@ -15,6 +15,7 @@ import numpy as np
 import torch
 
 from detectors import YoloDetector
+from customDataset import get_dataset
 """
 Script modified from Deep OC-SORT: 
 https://github.com/GerardMaggiolino/Deep-OC-SORT
@@ -96,7 +97,8 @@ def main():
 
 
     det = YoloDetector(args.yolo_path)
-    for (img, np_img), _ , info, _ in my_data_loader(args.dataset_path):
+    for (img, np_img), _ , info, _ in get_dataset(args.dataset_path):
+        np_img = np_img.squeeze(0).numpy()
         frame_id = info[2].item()
         video_name = info[4][0].split("/")[0]
 
